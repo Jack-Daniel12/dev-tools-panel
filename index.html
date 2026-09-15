@@ -82,6 +82,15 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Schermata di caricamento a tutto schermo, mostrata durante le azioni
+     che richiedono il server (salvataggi, attiva/revoca, cancellazioni):
+     blocca ogni interazione finché non è finita, così è impossibile non
+     accorgersi che qualcosa sta succedendo. -->
+<div class="overlay-caricamento hidden" id="overlayCaricamento">
+  <div class="spinner"></div>
+  <div class="overlay-caricamento-testo" id="overlayCaricamentoTesto">Attendere...</div>
+</div>
+
 <script src="config.js"></script>
 <script src="app.js"></script>
 </body>
