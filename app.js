@@ -51,6 +51,14 @@
     bottone.classList.remove('in-corso');
   }
 
+  function mostraOverlayCaricamento(testo) {
+    document.getElementById('overlayCaricamentoTesto').textContent = testo || 'Attendere...';
+    document.getElementById('overlayCaricamento').classList.remove('hidden');
+  }
+  function nascondiOverlayCaricamento() {
+    document.getElementById('overlayCaricamento').classList.add('hidden');
+  }
+
   // ---------------- CALCOLO HASH (mai la password in chiaro sulla rete) ----------------
   async function calcolaHash(password) {
     var dati = new TextEncoder().encode(password + SALE_ADMIN);
@@ -124,6 +132,7 @@
     var btn = document.getElementById('btnAccedi');
     btn.disabled = true;
     btn.textContent = 'Verifica...';
+    mostraOverlayCaricamento('Verifica password...');
 
     try {
       var hash = await calcolaHash(valore);
@@ -141,6 +150,7 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Accedi';
+      nascondiOverlayCaricamento();
     }
   }
 
@@ -267,6 +277,7 @@
         var nuovoStato = sw.checked ? 'attivo' : 'revocato';
         sw.disabled = true;
         sw.closest('.interruttore').classList.add('in-corso');
+        mostraOverlayCaricamento(nuovoStato === 'attivo' ? 'Riattivazione in corso...' : 'Revoca in corso...');
         try {
           var payload = Object.assign({}, azienda, { stato: nuovoStato });
           if (nuovoStato === 'attivo') {
@@ -287,6 +298,7 @@
         } finally {
           sw.disabled = false;
           sw.closest('.interruttore').classList.remove('in-corso');
+          nascondiOverlayCaricamento();
         }
       });
     });
@@ -443,6 +455,7 @@
     var btnSblocca = document.getElementById('btnSbloccaDispositivo');
     if (btnSblocca) btnSblocca.addEventListener('click', async function () {
       impostaCaricamento(btnSblocca, 'Sblocco...');
+      mostraOverlayCaricamento('Sblocco dispositivo...');
       try {
         var d = await chiamaServer('adminSalvaAzienda', { hash: hashCorrente, azienda: Object.assign({}, a, { idDispositivo: '' }) });
         if (!d.successo) { mostraToast(d.errore || 'Errore.'); return; }
@@ -453,6 +466,7 @@
         mostraToast('Impossibile contattare il server.');
       } finally {
         rimuoviCaricamento(btnSblocca);
+        nascondiOverlayCaricamento();
       }
     });
 
@@ -477,6 +491,7 @@
 
       var btnSalva = document.getElementById('btnSalvaAzienda');
       impostaCaricamento(btnSalva, modalitaDettaglio === 'nuova' ? 'Creazione...' : 'Salvataggio...');
+      mostraOverlayCaricamento(modalitaDettaglio === 'nuova' ? 'Creazione azienda...' : 'Salvataggio in corso...');
       try {
         var d = await chiamaServer('adminSalvaAzienda', { hash: hashCorrente, azienda: datiAggiornati });
         if (!d.successo) { mostraToast(d.errore || 'Errore nel salvataggio.'); return; }
@@ -488,12 +503,14 @@
         mostraToast('Impossibile contattare il server. Le modifiche non sono state salvate.');
       } finally {
         rimuoviCaricamento(btnSalva);
+        nascondiOverlayCaricamento();
       }
     });
 
     document.querySelectorAll('[data-conferma]').forEach(function (btn) {
       btn.addEventListener('click', async function () {
         impostaCaricamento(btn, 'Eliminazione...');
+        mostraOverlayCaricamento('Eliminazione in corso...');
         try {
           if (btn.dataset.conferma === 'dati') {
             var d1 = await chiamaServer('adminEliminaDatiAzienda', { hash: hashCorrente, codice: a.codice });
@@ -513,6 +530,7 @@
           mostraToast('Impossibile contattare il server.');
         } finally {
           rimuoviCaricamento(btn);
+          nascondiOverlayCaricamento();
         }
       });
     });
