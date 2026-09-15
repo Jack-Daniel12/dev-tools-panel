@@ -39,13 +39,47 @@
     return Array.from(new Uint8Array(hashBuffer)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
   }
 
-  // ---------------- CHIAMATE AL SERVER ----------------
-  function chiamaServer(azione, corpo) {
+  // ---------------- CHIAMATE AL SERVER (con riprova automatica) ----------------
+  //
+  // Stessa logica già usata nel programma PC (lib/rete.js): fino a 4
+  // tentativi in background, con una pausa crescente tra uno e l'altro,
+  // prima di mostrare un errore vero. Utile soprattutto per il primo
+  // avvio "a freddo" di Apps Script dopo un periodo di inattività, che
+  // può essere più lento del solito.
+  var TENTATIVI_MASSIMI = 4;
+  var TIMEOUT_MS = 15000;
+
+  function attesa(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function chiamaServerUnaVolta(azione, corpo) {
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, TIMEOUT_MS);
     return fetch(URL_SCRIPT + '?azione=' + encodeURIComponent(azione), {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(corpo || {})
-    }).then(function (r) { return r.json(); });
+    }).then(function (r) {
+      if (!r.ok) throw new Error('Il server ha risposto con errore HTTP ' + r.status);
+      return r.json();
+    }).finally(function () {
+      clearTimeout(timer);
+    });
+  }
+
+  async function chiamaServer(azione, corpo) {
+    var ultimoErrore;
+    for (var tentativo = 1; tentativo <= TENTATIVI_MASSIMI; tentativo++) {
+      try {
+        return await chiamaServerUnaVolta(azione, corpo);
+      } catch (err) {
+        ultimoErrore = err;
+        if (tentativo < TENTATIVI_MASSIMI) await attesa(700 * tentativo);
+      }
+    }
+    throw ultimoErrore;
   }
 
   var hashCorrente = localStorage.getItem(CHIAVE_LOCALSTORAGE) || '';
