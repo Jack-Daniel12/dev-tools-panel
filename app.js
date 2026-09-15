@@ -32,6 +32,25 @@
     return 'MC-' + blocco() + '-' + blocco();
   }
 
+  // ---------------- FEEDBACK VISIVO "IN CORSO" ----------------
+  // Applicato a qualunque pulsante con testo: lo disabilita (comportamento
+  // già presente), ma ora anche cambia visibilmente aspetto e testo, così
+  // è sempre chiaro se un tocco ha avuto effetto o no — specialmente
+  // utile ora che ogni azione può richiedere qualche secondo (il file
+  // delle licenze va letto, decifrato, modificato, cifrato e riscritto ad
+  // ogni salvataggio).
+  function impostaCaricamento(bottone, testoInCorso) {
+    if (!bottone.dataset.testoOriginale) bottone.dataset.testoOriginale = bottone.textContent;
+    bottone.textContent = testoInCorso;
+    bottone.disabled = true;
+    bottone.classList.add('in-corso');
+  }
+  function rimuoviCaricamento(bottone) {
+    if (bottone.dataset.testoOriginale) bottone.textContent = bottone.dataset.testoOriginale;
+    bottone.disabled = false;
+    bottone.classList.remove('in-corso');
+  }
+
   // ---------------- CALCOLO HASH (mai la password in chiaro sulla rete) ----------------
   async function calcolaHash(password) {
     var dati = new TextEncoder().encode(password + SALE_ADMIN);
@@ -137,6 +156,10 @@
   function entraNelPannello() {
     mostraVista('lista');
     caricaElenco();
+    // Stabilisce la schermata "lista" come base della cronologia: da qui
+    // in poi il tasto/gesto Indietro del telefono viene gestito da noi
+    // (vedi popstate più sotto), invece di uscire subito dall'app.
+    history.replaceState({ vista: 'lista' }, '', location.pathname);
   }
 
   // Se il telefono ha già una sessione salvata (opzione "ricordami"),
@@ -243,6 +266,7 @@
         var azienda = aziende.find(function (a) { return a.codice === sw.dataset.codice; });
         var nuovoStato = sw.checked ? 'attivo' : 'revocato';
         sw.disabled = true;
+        sw.closest('.interruttore').classList.add('in-corso');
         try {
           var payload = Object.assign({}, azienda, { stato: nuovoStato });
           if (nuovoStato === 'attivo') {
@@ -262,6 +286,7 @@
           sw.checked = !sw.checked;
         } finally {
           sw.disabled = false;
+          sw.closest('.interruttore').classList.remove('in-corso');
         }
       });
     });
@@ -289,9 +314,15 @@
     document.getElementById('dettaglioCorpo').innerHTML = costruisciCorpoDettaglio(a);
     collegaEventiDettaglio(a);
     document.getElementById('vistaDettaglio').classList.add('aperta');
+    // Registriamo questa apertura nella cronologia del browser, così il
+    // gesto/tasto "Indietro" del telefono chiude il dettaglio invece di
+    // uscire dall'app (vedi gestione popstate più sotto).
+    history.pushState({ vista: 'dettaglio' }, '', location.pathname);
   }
 
-  document.getElementById('btnIndietroDettaglio').addEventListener('click', chiudiDettaglio);
+  document.getElementById('btnIndietroDettaglio').addEventListener('click', function () {
+    history.back(); // fa scattare il gestore popstate qui sotto, che chiude davvero la vista
+  });
   function chiudiDettaglio() {
     document.getElementById('vistaDettaglio').classList.remove('aperta');
   }
@@ -411,7 +442,7 @@
 
     var btnSblocca = document.getElementById('btnSbloccaDispositivo');
     if (btnSblocca) btnSblocca.addEventListener('click', async function () {
-      btnSblocca.disabled = true;
+      impostaCaricamento(btnSblocca, 'Sblocco...');
       try {
         var d = await chiamaServer('adminSalvaAzienda', { hash: hashCorrente, azienda: Object.assign({}, a, { idDispositivo: '' }) });
         if (!d.successo) { mostraToast(d.errore || 'Errore.'); return; }
@@ -421,7 +452,7 @@
       } catch (e) {
         mostraToast('Impossibile contattare il server.');
       } finally {
-        btnSblocca.disabled = false;
+        rimuoviCaricamento(btnSblocca);
       }
     });
 
@@ -445,7 +476,7 @@
       if (modalitaDettaglio === 'modifica' && a.idDispositivo !== undefined) datiAggiornati.idDispositivo = a.idDispositivo;
 
       var btnSalva = document.getElementById('btnSalvaAzienda');
-      btnSalva.disabled = true;
+      impostaCaricamento(btnSalva, modalitaDettaglio === 'nuova' ? 'Creazione...' : 'Salvataggio...');
       try {
         var d = await chiamaServer('adminSalvaAzienda', { hash: hashCorrente, azienda: datiAggiornati });
         if (!d.successo) { mostraToast(d.errore || 'Errore nel salvataggio.'); return; }
@@ -456,13 +487,13 @@
       } catch (e) {
         mostraToast('Impossibile contattare il server. Le modifiche non sono state salvate.');
       } finally {
-        btnSalva.disabled = false;
+        rimuoviCaricamento(btnSalva);
       }
     });
 
     document.querySelectorAll('[data-conferma]').forEach(function (btn) {
       btn.addEventListener('click', async function () {
-        btn.disabled = true;
+        impostaCaricamento(btn, 'Eliminazione...');
         try {
           if (btn.dataset.conferma === 'dati') {
             var d1 = await chiamaServer('adminEliminaDatiAzienda', { hash: hashCorrente, codice: a.codice });
@@ -481,7 +512,7 @@
         } catch (e) {
           mostraToast('Impossibile contattare il server.');
         } finally {
-          btn.disabled = false;
+          rimuoviCaricamento(btn);
         }
       });
     });
@@ -494,6 +525,47 @@
     var btnMostraConfermaAzienda = document.getElementById('btnEliminaAzienda');
     if (btnMostraConfermaAzienda) btnMostraConfermaAzienda.addEventListener('click', function () { document.getElementById('confermaAzienda').classList.add('visibile'); });
   }
+
+  // ---------------- GESTIONE TASTO/GESTO "INDIETRO" DEL TELEFONO ----------------
+  //
+  // Senza questo, il gesto "Indietro" di Android chiude direttamente
+  // l'app (non c'è una vera pagina precedente a cui tornare, essendo
+  // tutto su una sola pagina). Con la cronologia sintetica che abbiamo
+  // costruito sopra (un "gradino" per l'apertura del dettaglio, uno per
+  // la schermata base "lista"), possiamo intercettare il gesto:
+  //   - se il dettaglio è aperto -> lo chiudiamo, non usciamo
+  //   - se siamo già sulla lista -> serve premere Indietro 3 volte di
+  //     fila (entro pochi secondi) per uscire davvero, altrimenti
+  //     ripristiniamo il "gradino" e mostriamo quante volte mancano
+  //
+  // NOTA: il comportamento esatto del gesto di sistema (rispetto al
+  // tasto fisico/virtuale Indietro) può variare leggermente tra modelli
+  // e versioni di Android — vale la pena provarlo davvero sul telefono
+  // dopo aver pubblicato, questo è un meccanismo standard ma non posso
+  // verificarlo io stesso su un dispositivo Android reale da qui.
+  var tentativiUscita = 0;
+  var timerResetUscita = null;
+
+  window.addEventListener('popstate', function (e) {
+    var dettaglioAperto = document.getElementById('vistaDettaglio').classList.contains('aperta');
+
+    if (dettaglioAperto) {
+      chiudiDettaglio();
+      tentativiUscita = 0; // tornare al dettaglio resetta il conteggio di uscita
+      return;
+    }
+
+    // Siamo sulla schermata base: contiamo questo come un tentativo di uscita.
+    tentativiUscita++;
+    if (tentativiUscita < 3) {
+      // Ripristiniamo il "gradino" così il prossimo Indietro non esce per davvero.
+      history.pushState({ vista: 'lista' }, '', location.pathname);
+      mostraToast('Premi ancora Indietro ' + (3 - tentativiUscita) + ' volt' + (3 - tentativiUscita === 1 ? 'a' : 'e') + ' per uscire.');
+      clearTimeout(timerResetUscita);
+      timerResetUscita = setTimeout(function () { tentativiUscita = 0; }, 4000);
+    }
+    // Alla terza volta non ripristiniamo nulla: il prossimo gesto uscirà davvero dall'app.
+  });
 
   avvio();
 })();
