@@ -245,7 +245,13 @@
         sw.disabled = true;
         try {
           var payload = Object.assign({}, azienda, { stato: nuovoStato });
-          if (nuovoStato === 'attivo') payload.motivo = '';
+          if (nuovoStato === 'attivo') {
+            payload.motivo = '';
+            // Stesso motivo del dettaglio: se prima era revocata, la
+            // sincronizzazione va riaccesa esplicitamente, non lasciata
+            // al vecchio valore che la revoca aveva forzato a spento.
+            payload.sincronizzazioneAbilitata = true;
+          }
           var d = await chiamaServer('adminSalvaAzienda', { hash: hashCorrente, azienda: payload });
           if (!d.successo) { mostraToast(d.errore || 'Errore.'); sw.checked = !sw.checked; return; }
           aziende = d.aziende;
@@ -384,7 +390,14 @@
             testoSync.textContent = 'Disattivata (azienda revocata)';
           } else {
             toggleSync.disabled = false;
-            toggleSync.checked = a.sincronizzazioneAbilitata !== false;
+            // Se stiamo uscendo da "Revocato", riaccendi sempre la
+            // sincronizzazione di default: la revoca l'aveva spenta di
+            // proposito, e lasciarla spenta "per sbaglio" dopo la
+            // riattivazione lascerebbe il cliente bloccato senza motivo
+            // apparente. L'amministratore può comunque rispegnerla a
+            // mano subito dopo, se lo vuole davvero.
+            var eraRevocato = a.stato === 'revocato';
+            toggleSync.checked = eraRevocato ? true : (a.sincronizzazioneAbilitata !== false);
             testoSync.textContent = toggleSync.checked ? 'Attiva' : 'Disattivata manualmente';
           }
         }
