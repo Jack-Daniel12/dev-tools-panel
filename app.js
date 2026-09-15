@@ -163,6 +163,11 @@
     mostraVista('login');
   });
 
+  document.getElementById('btnRicaricaElenco').addEventListener('click', function () {
+    caricaElenco();
+    mostraToast('Elenco aggiornato.');
+  });
+
   function entraNelPannello() {
     mostraVista('lista');
     caricaElenco();
@@ -308,7 +313,7 @@
   document.getElementById('btnNuovaAzienda').addEventListener('click', function () {
     modalitaDettaglio = 'nuova';
     codiceAziendaAperta = null;
-    apriVistaDettaglio({ codice: generaCodice(), cliente: '', stato: 'attivo', scadenza: '', motivo: '', idDispositivo: '', note: '', sincronizzazioneAbilitata: true }, 'Nuova azienda', 'Compila i dati e crea la licenza');
+    apriVistaDettaglio({ codice: generaCodice(), cliente: '', stato: 'attivo', scadenza: '', motivo: '', dispositivi: [], limiteDispositivi: null, note: '', sincronizzazioneAbilitata: true }, 'Nuova azienda', 'Compila i dati e crea la licenza');
   });
 
   // ---------------- DETTAGLIO / MODIFICA ----------------
@@ -352,6 +357,18 @@
     }
   }
 
+  function costruisciListaDispositivi(dispositivi) {
+    if (!dispositivi || dispositivi.length === 0) {
+      return '<div class="nota-dispositivo"><span class="valore assente">Nessun dispositivo collegato ancora</span></div>';
+    }
+    return dispositivi.map(function (id) {
+      return '<div class="nota-dispositivo" style="margin-bottom:6px">' +
+        '<span class="valore">' + esc(id) + '</span>' +
+        '<button class="btn-piccolo" data-rimuovi-dispositivo="' + esc(id) + '">Rimuovi</button>' +
+        '</div>';
+    }).join('');
+  }
+
   function costruisciCorpoDettaglio(a) {
     var mostraCampiExtra = modalitaDettaglio === 'modifica';
     return '' +
@@ -371,6 +388,15 @@
         '<input type="text" id="campoMotivo" value="' + esc(a.motivo) + '" placeholder="es. Mancato pagamento">' +
       '</div>' +
       '<div class="campo-gruppo"><label>Scadenza (facoltativa)</label><input type="date" id="campoScadenza" value="' + esc(a.scadenza) + '"></div>' +
+      '<div class="campo-gruppo">' +
+        '<label>Limite dispositivi</label>' +
+        '<div class="segmentato" id="segmentatoLimite">' +
+          '<button data-limite="illimitato" class="' + (!a.limiteDispositivi ? 'selezionato st-attivo' : '') + '">Illimitato</button>' +
+          '<button data-limite="definito" class="' + (a.limiteDispositivi ? 'selezionato st-attivo' : '') + '">Definito</button>' +
+        '</div>' +
+        '<input type="number" id="campoLimiteNumero" min="1" step="1" placeholder="es. 3" value="' + (a.limiteDispositivi || '') + '" style="margin-top:8px;' + (a.limiteDispositivi ? '' : 'display:none') + '">' +
+        '<div class="spiega-campo">Quanti dispositivi diversi possono attivarsi con questo stesso codice. Chi è già collegato continua a funzionare anche se abbassi il limite sotto al numero attuale — semplicemente non se ne potranno aggiungere di nuovi finché non liberi posto.</div>' +
+      '</div>' +
       (mostraCampiExtra ? (
         '<div class="campo-gruppo">' +
           '<label>Sincronizzazione dati</label>' +
@@ -382,11 +408,8 @@
         '</div>'
       ) : '') +
       (mostraCampiExtra ? (
-        '<div class="campo-gruppo"><label>Dispositivo registrato</label>' +
-          '<div class="nota-dispositivo">' +
-            '<span class="valore' + (a.idDispositivo ? '' : ' assente') + '">' + (a.idDispositivo ? esc(a.idDispositivo) : 'Nessun PC ancora registrato') + '</span>' +
-            (a.idDispositivo ? '<button class="btn-piccolo" id="btnSbloccaDispositivo">Sblocca</button>' : '') +
-          '</div>' +
+        '<div class="campo-gruppo"><label>Dispositivi collegati (' + (a.dispositivi || []).length + ')</label>' +
+          '<div id="listaDispositivi">' + costruisciListaDispositivi(a.dispositivi || []) + '</div>' +
         '</div>' +
         '<div class="campo-gruppo"><label>Sincronizzazione condivisa</label><div class="info-sync" id="infoSincronizzazione">Caricamento...</div></div>'
       ) : '') +
@@ -452,22 +475,37 @@
       document.getElementById('testoSincronizzazione').textContent = toggleSyncEl.checked ? 'Attiva' : 'Disattivata manualmente';
     });
 
-    var btnSblocca = document.getElementById('btnSbloccaDispositivo');
-    if (btnSblocca) btnSblocca.addEventListener('click', async function () {
-      impostaCaricamento(btnSblocca, 'Sblocco...');
-      mostraOverlayCaricamento('Sblocco dispositivo...');
-      try {
-        var d = await chiamaServer('adminSalvaAzienda', { hash: hashCorrente, azienda: Object.assign({}, a, { idDispositivo: '' }) });
-        if (!d.successo) { mostraToast(d.errore || 'Errore.'); return; }
-        aziende = d.aziende;
-        mostraToast('Dispositivo sbloccato: il cliente potrà registrarne uno nuovo.');
-        apriDettaglio(a.codice);
-      } catch (e) {
-        mostraToast('Impossibile contattare il server.');
-      } finally {
-        rimuoviCaricamento(btnSblocca);
-        nascondiOverlayCaricamento();
-      }
+    document.querySelectorAll('[data-rimuovi-dispositivo]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        impostaCaricamento(btn, '...');
+        mostraOverlayCaricamento('Rimozione dispositivo...');
+        try {
+          var d = await chiamaServer('adminRimuoviDispositivo', { hash: hashCorrente, codice: a.codice, idDispositivo: btn.dataset.rimuoviDispositivo });
+          if (!d.successo) { mostraToast(d.errore || 'Errore.'); return; }
+          aziende = d.aziende;
+          mostraToast('Dispositivo rimosso: il cliente potrà registrarne uno nuovo.');
+          apriDettaglio(a.codice);
+        } catch (e) {
+          mostraToast('Impossibile contattare il server.');
+        } finally {
+          nascondiOverlayCaricamento();
+        }
+      });
+    });
+
+    document.querySelectorAll('#segmentatoLimite button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.querySelectorAll('#segmentatoLimite button').forEach(function (b) { b.className = ''; });
+        btn.className = 'selezionato st-attivo';
+        var campoNumero = document.getElementById('campoLimiteNumero');
+        if (btn.dataset.limite === 'definito') {
+          campoNumero.style.display = '';
+          if (!campoNumero.value) campoNumero.value = 1;
+          campoNumero.focus();
+        } else {
+          campoNumero.style.display = 'none';
+        }
+      });
     });
 
     document.getElementById('btnSalvaAzienda').addEventListener('click', async function () {
@@ -487,7 +525,12 @@
       };
       var toggleSyncSalva = document.getElementById('toggleSincronizzazione');
       if (toggleSyncSalva) datiAggiornati.sincronizzazioneAbilitata = toggleSyncSalva.checked;
-      if (modalitaDettaglio === 'modifica' && a.idDispositivo !== undefined) datiAggiornati.idDispositivo = a.idDispositivo;
+      var limiteSelezionato = document.querySelector('#segmentatoLimite button.selezionato');
+      if (limiteSelezionato && limiteSelezionato.dataset.limite === 'definito') {
+        datiAggiornati.limiteDispositivi = document.getElementById('campoLimiteNumero').value || 1;
+      } else {
+        datiAggiornati.limiteDispositivi = null;
+      }
 
       var btnSalva = document.getElementById('btnSalvaAzienda');
       impostaCaricamento(btnSalva, modalitaDettaglio === 'nuova' ? 'Creazione...' : 'Salvataggio...');
