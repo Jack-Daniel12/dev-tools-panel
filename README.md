@@ -1,0 +1,1 @@
+# pannello-aziende-magazzino
