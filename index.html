@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pannello aziende">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1A1F22">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<title>Pannello aziende</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="schermo" id="schermo">
+
+  <!-- LOGIN -->
+  <div class="vista-login" id="vistaLogin">
+    <div class="login-box">
+      <svg class="stemma" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100" height="100" rx="24" fill="url(#g1)"/>
+        <rect x="24" y="30" width="52" height="10" rx="2" fill="#F4EFE4"/>
+        <rect x="24" y="45" width="52" height="6" rx="2" fill="#F4EFE4" opacity="0.85"/>
+        <rect x="24" y="56" width="52" height="6" rx="2" fill="#B8843E"/>
+        <rect x="24" y="67" width="52" height="6" rx="2" fill="#F4EFE4" opacity="0.7"/>
+        <circle cx="70" cy="70" r="15" fill="#B8843E"/>
+        <path d="M64 70h12M70 64v12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+        <defs><linearGradient id="g1" x1="0" y1="0" x2="100" y2="100"><stop stop-color="#343C40"/><stop offset="1" stop-color="#1A1F22"/></linearGradient></defs>
+      </svg>
+      <h1>Pannello aziende</h1>
+      <div class="sotto">Accesso riservato. Inserisci la password per gestire licenze e dati delle aziende.</div>
+      <input type="password" id="inputPassword" placeholder="Password" autocomplete="off">
+      <button class="btn-copper" id="btnAccedi">Accedi</button>
+      <div class="login-errore" id="loginErrore"></div>
+    </div>
+  </div>
+
+  <!-- LISTA -->
+  <div class="vista-lista" id="vistaLista" style="display:none">
+    <div class="testata">
+      <div class="testata-riga1">
+        <h1>Aziende</h1>
+        <button class="btn-esci" id="btnEsci">Esci</button>
+      </div>
+      <div class="conteggio" id="conteggioAziende">—</div>
+    </div>
+    <div class="barra-ricerca-wrap">
+      <input type="text" class="barra-ricerca" id="ricercaAziende" placeholder="Cerca per nome o codice">
+    </div>
+    <div class="filtri" id="filtriStato">
+      <button class="filtro-chip attivo-filtro" data-filtro="tutte">Tutte</button>
+      <button class="filtro-chip" data-filtro="attivo">Attive</button>
+      <button class="filtro-chip" data-filtro="sospeso">Sospese</button>
+      <button class="filtro-chip" data-filtro="revocato">Revocate</button>
+      <button class="filtro-chip" data-filtro="scadenza">In scadenza</button>
+    </div>
+    <div class="lista-aziende" id="listaAziendeBody">
+      <div class="lista-vuota-admin">Caricamento...</div>
+    </div>
+    <button class="fab-nuova" id="btnNuovaAzienda" title="Nuova azienda">+</button>
+  </div>
+
+  <!-- DETTAGLIO / NUOVA AZIENDA -->
+  <div class="vista-dettaglio" id="vistaDettaglio">
+    <div class="dettaglio-testata">
+      <button class="btn-indietro" id="btnIndietroDettaglio">‹</button>
+      <div>
+        <h2 id="dettaglioTitolo">Azienda</h2>
+        <div class="sotto-titolo" id="dettaglioSottotitolo"></div>
+      </div>
+    </div>
+    <div class="dettaglio-corpo" id="dettaglioCorpo"></div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
