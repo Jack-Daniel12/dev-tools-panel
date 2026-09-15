@@ -212,3 +212,27 @@
     font-size: 13.5px; opacity: 0; transition: all 0.2s; pointer-events: none; z-index: 100; max-width: 86%; text-align: center;
   }
   .toast.visibile { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---- Feedback "azione in corso" (pulsanti e interruttore rapido) ---- */
+
+.btn-salva.in-corso,
+.btn-pericolo.in-corso,
+.btn-piccolo.in-corso,
+.btn-copper.in-corso,
+.btn-conferma-pericolo.in-corso {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+@keyframes pulsaLeggero {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.interruttore.in-corso .interruttore-corsa {
+  animation: pulsaLeggero 0.9s ease-in-out infinite;
+}
