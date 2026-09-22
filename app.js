@@ -1,5 +1,18 @@
+import { initFirebase, adminLogin, adminLogout, attendiSessioneRipristinata } from './lib/base.js';
+import {
+  adminElencoAziende,
+  adminElencoDispositivi,
+  adminSalvaAzienda,
+  adminRimuoviDispositivo,
+  adminEliminaAzienda,
+  adminEliminaDatiAzienda,
+  adminInfoArchivioAzienda
+} from './lib/adminAziende.js';
+
 (function () {
-  var CHIAVE_LOCALSTORAGE = 'pannelloAdminHash';
+  var firebase = initFirebase(FIREBASE_CONFIG);
+  var db = firebase.db;
+  var auth = firebase.auth;
 
   function esc(t) { var d = document.createElement('div'); d.textContent = (t == null ? '' : t); return d.innerHTML; }
   function mostraToast(testo) {
@@ -33,12 +46,6 @@
   }
 
   // ---------------- FEEDBACK VISIVO "IN CORSO" ----------------
-  // Applicato a qualunque pulsante con testo: lo disabilita (comportamento
-  // già presente), ma ora anche cambia visibilmente aspetto e testo, così
-  // è sempre chiaro se un tocco ha avuto effetto o no — specialmente
-  // utile ora che ogni azione può richiedere qualche secondo (il file
-  // delle licenze va letto, decifrato, modificato, cifrato e riscritto ad
-  // ogni salvataggio).
   function impostaCaricamento(bottone, testoInCorso) {
     if (!bottone.dataset.testoOriginale) bottone.dataset.testoOriginale = bottone.textContent;
     bottone.textContent = testoInCorso;
@@ -50,7 +57,6 @@
     bottone.disabled = false;
     bottone.classList.remove('in-corso');
   }
-
   function mostraOverlayCaricamento(testo) {
     document.getElementById('overlayCaricamentoTesto').textContent = testo || 'Attendere...';
     document.getElementById('overlayCaricamento').classList.remove('hidden');
@@ -59,57 +65,31 @@
     document.getElementById('overlayCaricamento').classList.add('hidden');
   }
 
-  // ---------------- CALCOLO HASH (mai la password in chiaro sulla rete) ----------------
-  async function calcolaHash(password) {
-    var dati = new TextEncoder().encode(password + SALE_ADMIN);
-    var hashBuffer = await crypto.subtle.digest('SHA-256', dati);
-    return Array.from(new Uint8Array(hashBuffer)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
-  }
-
-  // ---------------- CHIAMATE AL SERVER (con riprova automatica) ----------------
-  //
-  // Stessa logica già usata nel programma PC (lib/rete.js): fino a 4
-  // tentativi in background, con una pausa crescente tra uno e l'altro,
-  // prima di mostrare un errore vero. Utile soprattutto per il primo
-  // avvio "a freddo" di Apps Script dopo un periodo di inattività, che
-  // può essere più lento del solito.
-  var TENTATIVI_MASSIMI = 4;
-  var TIMEOUT_MS = 15000;
-
-  function attesa(ms) {
-    return new Promise(function (resolve) { setTimeout(resolve, ms); });
-  }
-
-  function chiamaServerUnaVolta(azione, corpo) {
-    var controller = new AbortController();
-    var timer = setTimeout(function () { controller.abort(); }, TIMEOUT_MS);
-    return fetch(URL_SCRIPT + '?azione=' + encodeURIComponent(azione), {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(corpo || {})
-    }).then(function (r) {
-      if (!r.ok) throw new Error('Il server ha risposto con errore HTTP ' + r.status);
-      return r.json();
-    }).finally(function () {
-      clearTimeout(timer);
-    });
-  }
-
-  async function chiamaServer(azione, corpo) {
-    var ultimoErrore;
-    for (var tentativo = 1; tentativo <= TENTATIVI_MASSIMI; tentativo++) {
-      try {
-        return await chiamaServerUnaVolta(azione, corpo);
-      } catch (err) {
-        ultimoErrore = err;
-        if (tentativo < TENTATIVI_MASSIMI) await attesa(700 * tentativo);
-      }
+  // Traduce gli errori più comuni di Firebase Auth in un messaggio
+  // comprensibile. A differenza della versione precedente, qui non
+  // c'è più un hash calcolato a mano: Firebase gestisce da sé la
+  // verifica della password (in modo più robusto: usa scrypt lato
+  // server, non un semplice SHA-256).
+  function messaggioErroreLogin(err) {
+    var codice = err && err.code;
+    if (codice === 'auth/invalid-credential' || codice === 'auth/wrong-password' || codice === 'auth/user-not-found') {
+      return 'Password errata.';
     }
-    throw ultimoErrore;
+    if (codice === 'auth/too-many-requests') return 'Troppi tentativi: riprova tra qualche minuto.';
+    if (codice === 'auth/network-request-failed') return 'Impossibile contattare il server. Controlla la connessione.';
+    return 'Impossibile accedere' + (err && err.message ? ': ' + err.message : '.');
   }
 
-  var hashCorrente = localStorage.getItem(CHIAVE_LOCALSTORAGE) || '';
+  async function haPermessoAdmin(utente) {
+    if (!utente) return false;
+    var esito = await utente.getIdTokenResult();
+    if (esito.claims.admin === true) return true;
+    // Fallback raro: il permesso è stato assegnato dopo l'ultimo login,
+    // forziamo un aggiornamento del token e ricontrolliamo una volta.
+    var esitoFresco = await utente.getIdTokenResult(true);
+    return esitoFresco.claims.admin === true;
+  }
+
   var aziende = [];
   var filtroCorrente = 'tutte';
   var testoRicerca = '';
@@ -135,18 +115,16 @@
     mostraOverlayCaricamento('Verifica password...');
 
     try {
-      var hash = await calcolaHash(valore);
-      var d = await chiamaServer('adminVerificaPassword', { hash: hash });
-      if (!d.successo) {
-        errore.textContent = d.errore || 'Password errata.';
+      var utente = await adminLogin(auth, ADMIN_EMAIL, valore);
+      if (!(await haPermessoAdmin(utente))) {
+        errore.textContent = 'Questo account non ha i permessi di amministratore.';
+        await adminLogout(auth);
         return;
       }
-      hashCorrente = hash;
-      localStorage.setItem(CHIAVE_LOCALSTORAGE, hash);
       document.getElementById('inputPassword').value = '';
       entraNelPannello();
     } catch (e) {
-      errore.textContent = 'Impossibile contattare il server. Controlla la connessione.';
+      errore.textContent = messaggioErroreLogin(e);
     } finally {
       btn.disabled = false;
       btn.textContent = 'Accedi';
@@ -157,9 +135,8 @@
   document.getElementById('btnAccedi').addEventListener('click', provaLogin);
   document.getElementById('inputPassword').addEventListener('keydown', function (e) { if (e.key === 'Enter') provaLogin(); });
 
-  document.getElementById('btnEsci').addEventListener('click', function () {
-    localStorage.removeItem(CHIAVE_LOCALSTORAGE);
-    hashCorrente = '';
+  document.getElementById('btnEsci').addEventListener('click', async function () {
+    await adminLogout(auth);
     mostraVista('login');
   });
 
@@ -171,25 +148,23 @@
   function entraNelPannello() {
     mostraVista('lista');
     caricaElenco();
-    // Stabilisce la schermata "lista" come base della cronologia: da qui
-    // in poi il tasto/gesto Indietro del telefono viene gestito da noi
-    // (vedi popstate più sotto), invece di uscire subito dall'app.
     history.replaceState({ vista: 'lista' }, '', location.pathname);
   }
 
-  // Se il telefono ha già una sessione salvata (opzione "ricordami"),
-  // proviamo a entrare direttamente, verificando comunque che la password
-  // non sia stata cambiata nel frattempo (l'hash salvato potrebbe non
-  // essere più valido).
+  // Firebase ricorda da solo la sessione tra un'apertura e l'altra
+  // (stesso comportamento del "Ricordami" di prima, qui automatico):
+  // aspettiamo che la ripristini, poi controlliamo che l'account abbia
+  // ancora il permesso admin (potrebbe essere stato tolto nel frattempo).
   async function avvio() {
-    if (!hashCorrente) { mostraVista('login'); return; }
-    try {
-      var d = await chiamaServer('adminVerificaPassword', { hash: hashCorrente });
-      if (d.successo) { entraNelPannello(); return; }
-    } catch (e) { /* problema di rete: proviamo comunque a mostrare la lista con dati eventualmente in cache */ }
-    localStorage.removeItem(CHIAVE_LOCALSTORAGE);
-    hashCorrente = '';
     mostraVista('login');
+    try {
+      var utente = await attendiSessioneRipristinata(auth);
+      if (utente && (await haPermessoAdmin(utente))) {
+        entraNelPannello();
+      }
+    } catch (e) {
+      // problema di rete: mostriamo comunque il login, l'utente può riprovare
+    }
   }
 
   // ---------------- LISTA ----------------
@@ -211,21 +186,15 @@
   async function caricaElenco() {
     document.getElementById('listaAziendeBody').innerHTML = '<div class="lista-vuota-admin">Caricamento...</div>';
     try {
-      var d = await chiamaServer('adminElencoAziende', { hash: hashCorrente });
-      if (!d.successo) {
-        if ((d.errore || '').toLowerCase().indexOf('password') !== -1) {
-          mostraToast('Sessione scaduta, effettua di nuovo l\'accesso.');
-          localStorage.removeItem(CHIAVE_LOCALSTORAGE);
-          hashCorrente = '';
-          mostraVista('login');
-          return;
-        }
-        document.getElementById('listaAziendeBody').innerHTML = '<div class="lista-vuota-admin">' + esc(d.errore || 'Errore nel caricamento.') + '</div>';
-        return;
-      }
-      aziende = d.aziende || [];
+      aziende = await adminElencoAziende(db);
       renderLista();
     } catch (e) {
+      if (e && e.code === 'permission-denied') {
+        mostraToast('Sessione scaduta, effettua di nuovo l\'accesso.');
+        await adminLogout(auth);
+        mostraVista('login');
+        return;
+      }
       document.getElementById('listaAziendeBody').innerHTML = '<div class="lista-vuota-admin">Impossibile contattare il server. Controlla la connessione e riprova.</div>';
     }
   }
@@ -287,14 +256,11 @@
           var payload = Object.assign({}, azienda, { stato: nuovoStato });
           if (nuovoStato === 'attivo') {
             payload.motivo = '';
-            // Stesso motivo del dettaglio: se prima era revocata, la
-            // sincronizzazione va riaccesa esplicitamente, non lasciata
-            // al vecchio valore che la revoca aveva forzato a spento.
             payload.sincronizzazioneAbilitata = true;
           }
-          var d = await chiamaServer('adminSalvaAzienda', { hash: hashCorrente, azienda: payload });
+          var d = await adminSalvaAzienda(db, payload);
           if (!d.successo) { mostraToast(d.errore || 'Errore.'); sw.checked = !sw.checked; return; }
-          aziende = d.aziende;
+          aziende = await adminElencoAziende(db);
           mostraToast(sw.checked ? 'Azienda riattivata.' : 'Azienda revocata: il PC del cliente si bloccherà al prossimo controllo.');
           renderLista();
         } catch (e) {
@@ -313,7 +279,7 @@
   document.getElementById('btnNuovaAzienda').addEventListener('click', function () {
     modalitaDettaglio = 'nuova';
     codiceAziendaAperta = null;
-    apriVistaDettaglio({ codice: generaCodice(), cliente: '', stato: 'attivo', scadenza: '', motivo: '', dispositivi: [], limiteDispositivi: null, note: '', sincronizzazioneAbilitata: true }, 'Nuova azienda', 'Compila i dati e crea la licenza');
+    apriVistaDettaglio({ codice: generaCodice(), cliente: '', stato: 'attivo', scadenza: '', motivo: '', numeroDispositivi: 0, limiteDispositivi: null, note: '', sincronizzazioneAbilitata: true }, 'Nuova azienda', 'Compila i dati e crea la licenza');
   });
 
   // ---------------- DETTAGLIO / MODIFICA ----------------
@@ -323,6 +289,7 @@
     var a = aziende.find(function (x) { return x.codice === codice; });
     apriVistaDettaglio(a, a.cliente, 'Codice ' + a.codice);
     caricaInfoArchivio(codice);
+    caricaListaDispositivi(codice);
   }
 
   function apriVistaDettaglio(a, titolo, sottotitolo) {
@@ -331,14 +298,11 @@
     document.getElementById('dettaglioCorpo').innerHTML = costruisciCorpoDettaglio(a);
     collegaEventiDettaglio(a);
     document.getElementById('vistaDettaglio').classList.add('aperta');
-    // Registriamo questa apertura nella cronologia del browser, così il
-    // gesto/tasto "Indietro" del telefono chiude il dettaglio invece di
-    // uscire dall'app (vedi gestione popstate più sotto).
     history.pushState({ vista: 'dettaglio' }, '', location.pathname);
   }
 
   document.getElementById('btnIndietroDettaglio').addEventListener('click', function () {
-    history.back(); // fa scattare il gestore popstate qui sotto, che chiude davvero la vista
+    history.back();
   });
   function chiudiDettaglio() {
     document.getElementById('vistaDettaglio').classList.remove('aperta');
@@ -348,8 +312,7 @@
     var el = document.getElementById('infoSincronizzazione');
     if (!el) return;
     try {
-      var d = await chiamaServer('adminInfoArchivioAzienda', { hash: hashCorrente, codice: codice });
-      if (!d.successo) { el.textContent = 'Non disponibile.'; return; }
+      var d = await adminInfoArchivioAzienda(db, codice);
       if (!d.esiste) { el.textContent = 'Nessun dato ancora sincronizzato.'; return; }
       el.textContent = formattaOraRelativa(d.ultimoAggiornamento) + ' — ' + d.numeroProdotti + ' prodotti, ' + d.numeroMovimenti + ' movimenti registrati';
     } catch (e) {
@@ -357,16 +320,52 @@
     }
   }
 
+  // Il conteggio dei dispositivi è già disponibile subito (a.numeroDispositivi,
+  // arrivato insieme all'elenco aziende); l'elenco puntuale con gli id, che
+  // serve solo qui nel dettaglio, si carica a parte per non appesantire
+  // l'elenco generale — vedi docs/00-stato-avanzamento.md.
+  async function caricaListaDispositivi(codice) {
+    var el = document.getElementById('listaDispositivi');
+    if (!el) return;
+    try {
+      var dispositivi = await adminElencoDispositivi(db, codice);
+      el.innerHTML = costruisciListaDispositivi(dispositivi);
+      collegaEventiRimuoviDispositivo(codice);
+    } catch (e) {
+      el.innerHTML = '<div class="nota-dispositivo"><span class="valore assente">Non disponibile (problema di connessione)</span></div>';
+    }
+  }
+
   function costruisciListaDispositivi(dispositivi) {
     if (!dispositivi || dispositivi.length === 0) {
       return '<div class="nota-dispositivo"><span class="valore assente">Nessun dispositivo collegato ancora</span></div>';
     }
-    return dispositivi.map(function (id) {
+    return dispositivi.map(function (d) {
       return '<div class="nota-dispositivo" style="margin-bottom:6px">' +
-        '<span class="valore">' + esc(id) + '</span>' +
-        '<button class="btn-piccolo" data-rimuovi-dispositivo="' + esc(id) + '">Rimuovi</button>' +
+        '<span class="valore">' + esc(d.idDispositivo) + (d.ultimoUtilizzo ? ' <small style="opacity:.6">— ultimo uso ' + formattaOraRelativa(d.ultimoUtilizzo) + '</small>' : '') + '</span>' +
+        '<button class="btn-piccolo" data-rimuovi-dispositivo="' + esc(d.idDispositivo) + '">Rimuovi</button>' +
         '</div>';
     }).join('');
+  }
+
+  function collegaEventiRimuoviDispositivo(codice) {
+    document.querySelectorAll('[data-rimuovi-dispositivo]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        impostaCaricamento(btn, '...');
+        mostraOverlayCaricamento('Rimozione dispositivo...');
+        try {
+          var d = await adminRimuoviDispositivo(db, codice, btn.dataset.rimuoviDispositivo);
+          if (!d.successo) { mostraToast(d.errore || 'Errore.'); return; }
+          aziende = await adminElencoAziende(db);
+          mostraToast('Dispositivo rimosso: il cliente potrà registrarne uno nuovo.');
+          apriDettaglio(codice);
+        } catch (e) {
+          mostraToast('Impossibile contattare il server.');
+        } finally {
+          nascondiOverlayCaricamento();
+        }
+      });
+    });
   }
 
   function costruisciCorpoDettaglio(a) {
@@ -408,8 +407,8 @@
         '</div>'
       ) : '') +
       (mostraCampiExtra ? (
-        '<div class="campo-gruppo"><label>Dispositivi collegati (' + (a.dispositivi || []).length + ')</label>' +
-          '<div id="listaDispositivi">' + costruisciListaDispositivi(a.dispositivi || []) + '</div>' +
+        '<div class="campo-gruppo"><label>Dispositivi collegati (' + (a.numeroDispositivi || 0) + ')</label>' +
+          '<div id="listaDispositivi"><div class="nota-dispositivo">Caricamento...</div></div>' +
         '</div>' +
         '<div class="campo-gruppo"><label>Sincronizzazione condivisa</label><div class="info-sync" id="infoSincronizzazione">Caricamento...</div></div>'
       ) : '') +
@@ -418,14 +417,14 @@
       (mostraCampiExtra ? (
         '<div class="zona-pericolo">' +
           '<label>Zona pericolosa</label>' +
-          '<button class="btn-pericolo" id="btnEliminaDati">Elimina dati archiviati su GitHub</button>' +
+          '<button class="btn-pericolo" id="btnEliminaDati">Elimina dati archiviati</button>' +
           '<div class="conferma-pericolo" id="confermaDati">' +
-            '<p>Cancella per sempre l\'archivio cifrato di questa azienda (prodotti, giacenze, fatture). Al prossimo avvio, il PC del cliente si svuoterà. Non è recuperabile.</p>' +
+            '<p>Cancella per sempre l\'archivio di questa azienda (prodotti, giacenze, fatture). Al prossimo avvio, il PC del cliente si svuoterà. Non è recuperabile.</p>' +
             '<div class="riga-bottoni"><button class="btn-annulla-pericolo" data-annulla="confermaDati">Annulla</button><button class="btn-conferma-pericolo" data-conferma="dati">Elimina definitivamente</button></div>' +
           '</div>' +
           '<button class="btn-pericolo" id="btnEliminaAzienda">Elimina azienda</button>' +
           '<div class="conferma-pericolo" id="confermaAzienda">' +
-            '<p>Rimuove anche il codice licenza: il cliente non potrà più accedere con questo codice. Usalo solo se l\'azienda non è più tua cliente.</p>' +
+            '<p>Rimuove anche il codice licenza e tutti i dati collegati: il cliente non potrà più accedere con questo codice. Usalo solo se l\'azienda non è più tua cliente.</p>' +
             '<div class="riga-bottoni"><button class="btn-annulla-pericolo" data-annulla="confermaAzienda">Annulla</button><button class="btn-conferma-pericolo" data-conferma="azienda">Elimina definitivamente</button></div>' +
           '</div>' +
         '</div>'
@@ -456,12 +455,6 @@
             testoSync.textContent = 'Disattivata (azienda revocata)';
           } else {
             toggleSync.disabled = false;
-            // Se stiamo uscendo da "Revocato", riaccendi sempre la
-            // sincronizzazione di default: la revoca l'aveva spenta di
-            // proposito, e lasciarla spenta "per sbaglio" dopo la
-            // riattivazione lascerebbe il cliente bloccato senza motivo
-            // apparente. L'amministratore può comunque rispegnerla a
-            // mano subito dopo, se lo vuole davvero.
             var eraRevocato = a.stato === 'revocato';
             toggleSync.checked = eraRevocato ? true : (a.sincronizzazioneAbilitata !== false);
             testoSync.textContent = toggleSync.checked ? 'Attiva' : 'Disattivata manualmente';
@@ -473,24 +466,6 @@
     var toggleSyncEl = document.getElementById('toggleSincronizzazione');
     if (toggleSyncEl) toggleSyncEl.addEventListener('change', function () {
       document.getElementById('testoSincronizzazione').textContent = toggleSyncEl.checked ? 'Attiva' : 'Disattivata manualmente';
-    });
-
-    document.querySelectorAll('[data-rimuovi-dispositivo]').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        impostaCaricamento(btn, '...');
-        mostraOverlayCaricamento('Rimozione dispositivo...');
-        try {
-          var d = await chiamaServer('adminRimuoviDispositivo', { hash: hashCorrente, codice: a.codice, idDispositivo: btn.dataset.rimuoviDispositivo });
-          if (!d.successo) { mostraToast(d.errore || 'Errore.'); return; }
-          aziende = d.aziende;
-          mostraToast('Dispositivo rimosso: il cliente potrà registrarne uno nuovo.');
-          apriDettaglio(a.codice);
-        } catch (e) {
-          mostraToast('Impossibile contattare il server.');
-        } finally {
-          nascondiOverlayCaricamento();
-        }
-      });
     });
 
     document.querySelectorAll('#segmentatoLimite button').forEach(function (btn) {
@@ -536,9 +511,9 @@
       impostaCaricamento(btnSalva, modalitaDettaglio === 'nuova' ? 'Creazione...' : 'Salvataggio...');
       mostraOverlayCaricamento(modalitaDettaglio === 'nuova' ? 'Creazione azienda...' : 'Salvataggio in corso...');
       try {
-        var d = await chiamaServer('adminSalvaAzienda', { hash: hashCorrente, azienda: datiAggiornati });
+        var d = await adminSalvaAzienda(db, datiAggiornati);
         if (!d.successo) { mostraToast(d.errore || 'Errore nel salvataggio.'); return; }
-        aziende = d.aziende;
+        aziende = await adminElencoAziende(db);
         mostraToast(modalitaDettaglio === 'nuova' ? 'Azienda creata.' : 'Modifiche salvate.');
         chiudiDettaglio();
         renderLista();
@@ -556,15 +531,15 @@
         mostraOverlayCaricamento('Eliminazione in corso...');
         try {
           if (btn.dataset.conferma === 'dati') {
-            var d1 = await chiamaServer('adminEliminaDatiAzienda', { hash: hashCorrente, codice: a.codice });
+            var d1 = await adminEliminaDatiAzienda(db, a.codice);
             if (!d1.successo) { mostraToast(d1.errore || 'Errore.'); return; }
             mostraToast('Dati archiviati eliminati.');
             document.getElementById('confermaDati').classList.remove('visibile');
             caricaInfoArchivio(a.codice);
           } else if (btn.dataset.conferma === 'azienda') {
-            var d2 = await chiamaServer('adminEliminaAzienda', { hash: hashCorrente, codice: a.codice });
+            var d2 = await adminEliminaAzienda(db, a.codice);
             if (!d2.successo) { mostraToast(d2.errore || 'Errore.'); return; }
-            aziende = d2.aziende;
+            aziende = await adminElencoAziende(db);
             mostraToast('Azienda eliminata.');
             chiudiDettaglio();
             renderLista();
@@ -588,22 +563,6 @@
   }
 
   // ---------------- GESTIONE TASTO/GESTO "INDIETRO" DEL TELEFONO ----------------
-  //
-  // Senza questo, il gesto "Indietro" di Android chiude direttamente
-  // l'app (non c'è una vera pagina precedente a cui tornare, essendo
-  // tutto su una sola pagina). Con la cronologia sintetica che abbiamo
-  // costruito sopra (un "gradino" per l'apertura del dettaglio, uno per
-  // la schermata base "lista"), possiamo intercettare il gesto:
-  //   - se il dettaglio è aperto -> lo chiudiamo, non usciamo
-  //   - se siamo già sulla lista -> serve premere Indietro 3 volte di
-  //     fila (entro pochi secondi) per uscire davvero, altrimenti
-  //     ripristiniamo il "gradino" e mostriamo quante volte mancano
-  //
-  // NOTA: il comportamento esatto del gesto di sistema (rispetto al
-  // tasto fisico/virtuale Indietro) può variare leggermente tra modelli
-  // e versioni di Android — vale la pena provarlo davvero sul telefono
-  // dopo aver pubblicato, questo è un meccanismo standard ma non posso
-  // verificarlo io stesso su un dispositivo Android reale da qui.
   var tentativiUscita = 0;
   var timerResetUscita = null;
 
@@ -612,20 +571,17 @@
 
     if (dettaglioAperto) {
       chiudiDettaglio();
-      tentativiUscita = 0; // tornare al dettaglio resetta il conteggio di uscita
+      tentativiUscita = 0;
       return;
     }
 
-    // Siamo sulla schermata base: contiamo questo come un tentativo di uscita.
     tentativiUscita++;
     if (tentativiUscita < 3) {
-      // Ripristiniamo il "gradino" così il prossimo Indietro non esce per davvero.
       history.pushState({ vista: 'lista' }, '', location.pathname);
       mostraToast('Premi ancora Indietro ' + (3 - tentativiUscita) + ' volt' + (3 - tentativiUscita === 1 ? 'a' : 'e') + ' per uscire.');
       clearTimeout(timerResetUscita);
       timerResetUscita = setTimeout(function () { tentativiUscita = 0; }, 4000);
     }
-    // Alla terza volta non ripristiniamo nulla: il prossimo gesto uscirà davvero dall'app.
   });
 
   avvio();

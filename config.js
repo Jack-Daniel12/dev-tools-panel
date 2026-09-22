@@ -1,18 +1,26 @@
 // config.js
 //
-// 1. URL_SCRIPT: incolla qui l'indirizzo del tuo Apps Script (lo stesso
-//    già usato dal programma PC e dalla pagina "Nuovo Prodotto"), quello
-//    che finisce in /exec.
+// I valori qui sotto NON sono segreti: la configurazione web di Firebase
+// è pensata per stare nel codice pubblico (lo dice la stessa
+// documentazione ufficiale di Firebase) — la sicurezza vera è affidata
+// alle regole di sicurezza (firestore.rules) e all'accesso con
+// password, non a nascondere questi valori. Per questo, a differenza
+// della versione precedente, questa pagina può stare tranquillamente in
+// un repository GitHub PUBBLICO, senza bisogno di un piano a pagamento.
 //
-// 2. SALE_ADMIN: NON è un segreto (un "sale" crittografico serve solo a
-//    rendere l'hash unico per questa installazione, non a nasconderlo).
-//    Deve essere IDENTICO al valore SALT che hai copiato nei log quando
-//    hai eseguito generaHashPassword() in Apps Script, e allo stesso
-//    valore che hai messo nella proprietà ADMIN_PASSWORD_SALT.
-//
-// La password vera non va MAI scritta in questo file, né da nessun'altra
-// parte: viene digitata ogni volta (o ricordata cifrata dal telefono) e
-// trasformata subito in un hash prima di essere inviata.
+// 1. FIREBASE_CONFIG: la trovi nella console Firebase → icona ingranaggio
+//    → Impostazioni progetto → in fondo alla scheda "Generali", sezione
+//    "Le tue app" → clicca sull'icona web (</>) per registrare un'app
+//    web (se non l'hai già fatto) → copia l'oggetto che ti mostra.
+// 2. ADMIN_EMAIL: l'email che hai usato con strumenti/imposta-admin.js.
 
-var URL_SCRIPT = "https://script.google.com/macros/s/AKfycbwRMfpVc_2spcYtJ6WBY_rMe4jhM2C2lqClRwnqM9HbJztA2Czdx5-Gn2vNHVlImGUfsw/exec";
-var SALE_ADMIN = "0f6f36e8-820d-4c1f-9ceb-50b62c438660";
+var firebaseConfig = {
+  apiKey: "AIzaSyD2yEvQaoUaT4ac6ELJ9EWSjLd58y8ejBc",
+  authDomain: "gestionale-magazzino-28de6.firebaseapp.com",
+  projectId: "gestionale-magazzino-28de6",
+  storageBucket: "gestionale-magazzino-28de6.firebasestorage.app",
+  messagingSenderId: "795812738394",
+  appId: "1:795812738394:web:9f2ff8419f2ef492f22f63"
+};
+
+var ADMIN_EMAIL = "rizzadanielvincenzo@gmail.com";
