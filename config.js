@@ -14,7 +14,7 @@
 //    web (se non l'hai già fatto) → copia l'oggetto che ti mostra.
 // 2. ADMIN_EMAIL: l'email che hai usato con strumenti/imposta-admin.js.
 
-var firebaseConfig = {
+var FIREBASE_CONFIG = {
   apiKey: "AIzaSyD2yEvQaoUaT4ac6ELJ9EWSjLd58y8ejBc",
   authDomain: "gestionale-magazzino-28de6.firebaseapp.com",
   projectId: "gestionale-magazzino-28de6",
